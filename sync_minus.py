@@ -1,5 +1,5 @@
 # coding: utf-8
-
+import logging
 import pandas as pd
 import yaDirect
 import time
@@ -8,6 +8,10 @@ from oauth2client.service_account import ServiceAccountCredentials
 
 # Импорт файла с настройками
 from settings import *
+
+logging.basicConfig(filename="symc_minus.log", level=logging.DEBUG, 
+    format='%(asctime)s - %(message)s', datefmt='%d-%b-%y %H:%M:%S')
+
 # Файл настроек содержит следующие переменные:
 # ссылка на таблицу с минус словами
 # SPREADSHEETS = "https://docs.google.com/spreadsheets/d/1yWCDVbfw6eS3NXj6BVhSmGiBCj-s5eiYFII0I72JWMw/edit?usp=sharing"
@@ -46,6 +50,7 @@ def get_all_clients():
     
     for index, row in all_clients.iterrows():
         print ("login: ", row['Login'])
+        logging.info("login: ", row['Login'])
         direct = yaDirect.yaDirect(ALL_TOKEN[row['mcc_account']]['token'], row['Login'] )
         params = {  "SelectionCriteria": { 
             "Types": [ "TEXT_CAMPAIGN" ],
@@ -61,12 +66,11 @@ def get_all_clients():
             campaigns["Login"] = row['Login']
             all_campaigns = all_campaigns.append(campaigns, ignore_index=True) 
         except:
-            print ("Кампании не найдены")
-
-
+            logging.info( "Кампании не найдены")
       
     result = all_campaigns[['mcc_account','Login','Id','Name']]
     result.to_csv('campaign_list.csv', index=False)
+
 
 # Получение минус слов из кампании
 def get_minus_from_one_account (accaunt):
@@ -86,12 +90,10 @@ def get_minus_from_one_account (accaunt):
     camps = camps.get('result').get('Campaigns')
     if camps is not None:
         NegativeKeywords = camps[0].get('NegativeKeywords')
-        if NegativeKeywords is not None:
-            return NegativeKeywords.get('Items')
-        else:
-            return []
+        return NegativeKeywords.get('Items',[])
+
     else:
-        print ("ERROR: No active campains ({})".format(camps) )
+        logging.info("ERROR: No active campains ({})".format(camps) )
         return []
 
 
@@ -124,18 +126,18 @@ def main():
     client = gspread.authorize(creds)
 
     sheets = client.open_by_url(SPREADSHEETS) 
-    #Формируем список используемых наборов минус слов в  документе
+    #Формируем список используемых наборов минус слов
     campaigns_list = sheets.worksheet('Campaign').get_all_values()
     minus_sheets_names = [ loc[4] for loc in campaigns_list[1:] ]
     minus_sheets_names = list(set(minus_sheets_names))
-    time.sleep(1)
-    #Общий список минус слов со всех листов, используемых на первом листе
+    time.sleep(1) #из за ограничений google docs api
+    #Собираем используемые минус слова со всех листов в один словарь
     minus_list = {}
     for sheet in minus_sheets_names:
         minus_list[sheet] = sheets.worksheet(sheet).col_values(1)
         time.sleep(1)
 
-    #Проходим по кампаниям
+
     for accaunt in campaigns_list[1:]:
         minus = []
         minus = get_minus_from_one_account (accaunt)
@@ -146,11 +148,12 @@ def main():
         minus = list(set(minus))
         res = update_negative_key(accaunt, minus).get("result").get("UpdateResults")
         #Загружаем обратно в кампанию
-        print("mcc_login={mcc} , login={login} , campain_id= {id} , campaign_name= {name} , \
-n_key_list={nlist} , result={res}".format(
-             mcc=accaunt[0], login=accaunt[1], id=accaunt[2], name=accaunt[3], 
-             nlist=accaunt[4], res=res)
-             )
+        text_for_log = "mcc_login={mcc} , login={login} , campain_id= {id} , campaign_name= {name} , \
+                        n_key_list={nlist} , result={res}".format(
+                        mcc=accaunt[0], login=accaunt[1], id=accaunt[2], name=accaunt[3], 
+                        nlist=accaunt[4], res=res)
+        logging.info(text_for_log)
+        print(text_for_log)
 
 
 
